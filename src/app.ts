@@ -1,6 +1,8 @@
 import express from "express";
 import { Request,Response } from "express";
 import { Contact, PrismaClient } from "@prisma/client";
+import { config } from "dotenv";
+config();
 
 const app = express();
 const prisma = new PrismaClient();
@@ -121,7 +123,7 @@ app.post("/identity", async (req:Request,res:Response) : Promise<any>=>{
   )
   .map((c) => c.id);
 
-  
+
   return res.json({
     contact: {
       primaryContactId: primaryContact.id,
@@ -131,6 +133,6 @@ app.post("/identity", async (req:Request,res:Response) : Promise<any>=>{
     },
   });
 });
-app.listen(3000, () => {
+app.listen(process.env.PORT, () => {
   console.log("Server running on http://localhost:3000");
 });
