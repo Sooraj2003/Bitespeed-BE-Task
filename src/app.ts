@@ -26,6 +26,34 @@ app.post("/identity", async (req,res) : Promise<any>=>{
     orderBy: { createdAt: "asc" },
   });
 
+  let primaryContact;
+  let allContacts: typeof matchingContacts = [];
+
+  if (matchingContacts.length === 0) {
+    // No match — create new PRIMARY contact
+    primaryContact = await prisma.contact.create({
+      data: {
+        email,
+        phoneNumber,
+        linkPrecedence: "PRIMARY",
+      },
+    });
+    allContacts = [primaryContact];
+  } else {
+    // Step 2: Find all linked contacts (directly or indirectly)
+    const allLinkedContacts = await prisma.contact.findMany({
+      where: {
+        OR: [
+          { id: { in: matchingContacts.map((c) => c.id) } },
+          { linkedId: { in: matchingContacts.map((c) => c.id) } },
+        ],
+        deletedAt: null,
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    allContacts = allLinkedContacts;
+
 })
 app.listen(3000, () => {
   console.log("Server running on http://localhost:3000");
