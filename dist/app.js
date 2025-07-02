@@ -22,7 +22,7 @@ app.post("/identity", (req, res) => __awaiter(void 0, void 0, void 0, function* 
     if (!email && !phoneNumber) {
         return res.status(400).json({ error: "Email or phoneNumber is required" });
     }
-    // Step 1: Find all matching contacts (either email or phone)
+    // Step 1: Find all matching contacts (email or phone)
     const matchingContacts = yield prisma.contact.findMany({
         where: {
             deletedAt: null,
@@ -35,8 +35,9 @@ app.post("/identity", (req, res) => __awaiter(void 0, void 0, void 0, function* 
     });
     let primaryContact;
     let allContacts = [];
+    let newlyCreatedSecondaryId = null;
     if (matchingContacts.length === 0) {
-        // No match — create a new primary contact
+        // No match — create new PRIMARY contact
         primaryContact = yield prisma.contact.create({
             data: {
                 email,
@@ -47,7 +48,7 @@ app.post("/identity", (req, res) => __awaiter(void 0, void 0, void 0, function* 
         allContacts = [primaryContact];
     }
     else {
-        // Match found — find the oldest primary
+        // Step 2: Find all linked contacts (directly or indirectly)
         const allLinkedContacts = yield prisma.contact.findMany({
             where: {
                 OR: [
@@ -59,12 +60,27 @@ app.post("/identity", (req, res) => __awaiter(void 0, void 0, void 0, function* 
             orderBy: { createdAt: "asc" },
         });
         allContacts = allLinkedContacts;
+        // Step 3: Identify the oldest PRIMARY as the true primary
         primaryContact =
-            allLinkedContacts.find((c) => c.linkPrecedence === "PRIMARY") || allLinkedContacts[0];
-        // Create new secondary contact if this email/phone combo doesn’t exactly exist
+            allLinkedContacts.find((c) => c.linkPrecedence === "PRIMARY") ||
+                allLinkedContacts[0];
+        // Step 4: Demote any newer PRIMARYs to SECONDARY
+        const contactsToUpdate = allLinkedContacts.filter((c) => c.linkPrecedence === "PRIMARY" &&
+            c.id !== primaryContact.id);
+        for (const contact of contactsToUpdate) {
+            yield prisma.contact.update({
+                where: { id: contact.id },
+                data: {
+                    linkPrecedence: "SECONDARY",
+                    linkedId: primaryContact.id,
+                    updatedAt: new Date(),
+                },
+            });
+        }
+        // Step 5: Check if an exact (email + phone) match exists
         const alreadyExists = allLinkedContacts.some((c) => c.email === email && c.phoneNumber === phoneNumber);
         if (!alreadyExists) {
-            yield prisma.contact.create({
+            const newSecondary = yield prisma.contact.create({
                 data: {
                     email,
                     phoneNumber,
@@ -72,24 +88,27 @@ app.post("/identity", (req, res) => __awaiter(void 0, void 0, void 0, function* 
                     linkPrecedence: "SECONDARY",
                 },
             });
-            // Fetch again to include newly created one
-            allContacts = yield prisma.contact.findMany({
-                where: {
-                    OR: [
-                        { id: primaryContact.id },
-                        { linkedId: primaryContact.id },
-                    ],
-                    deletedAt: null,
-                },
-                orderBy: { createdAt: "asc" },
-            });
+            newlyCreatedSecondaryId = newSecondary.id;
         }
+        // Step 6: Fetch updated list of all linked contacts
+        allContacts = yield prisma.contact.findMany({
+            where: {
+                OR: [
+                    { id: primaryContact.id },
+                    { linkedId: primaryContact.id },
+                ],
+                deletedAt: null,
+            },
+            orderBy: { createdAt: "asc" },
+        });
     }
-    const emails = Array.from(new Set(allContacts.map(c => c.email).filter(Boolean)));
-    const phoneNumbers = Array.from(new Set(allContacts.map(c => c.phoneNumber).filter(Boolean)));
+    // Prepare response
+    const emails = Array.from(new Set(allContacts.map((c) => c.email).filter(Boolean)));
+    const phoneNumbers = Array.from(new Set(allContacts.map((c) => c.phoneNumber).filter(Boolean)));
     const secondaryContactIds = allContacts
-        .filter(c => c.id !== primaryContact.id)
-        .map(c => c.id);
+        .filter((c) => c.linkPrecedence === "SECONDARY" &&
+        c.id !== newlyCreatedSecondaryId)
+        .map((c) => c.id);
     return res.json({
         contact: {
             primaryContactId: primaryContact.id,

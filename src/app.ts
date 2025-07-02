@@ -7,7 +7,7 @@ const prisma = new PrismaClient();
 
 app.use(express.json());
 
-app.post("/identity", async (req,res) : Promise<any>=>{
+app.post("/identity", async (req:Request,res:Response) : Promise<any>=>{
   const { email, phoneNumber } = req.body;
 
   if (!email && !phoneNumber) {
@@ -28,6 +28,7 @@ app.post("/identity", async (req,res) : Promise<any>=>{
 
   let primaryContact:Contact;
   let allContacts: typeof matchingContacts = [];
+   let newlyCreatedSecondaryId: number | null = null;
 
   if (matchingContacts.length === 0) {
     // No match — create new PRIMARY contact
@@ -82,15 +83,16 @@ app.post("/identity", async (req,res) : Promise<any>=>{
     );
 
     if (!alreadyExists) {
-      await prisma.contact.create({
-        data: {
-          email,
-          phoneNumber,
-          linkedId: primaryContact.id,
-          linkPrecedence: "SECONDARY",
-        },
-      });
-    }
+  const newSecondary = await prisma.contact.create({
+    data: {
+      email,
+      phoneNumber,
+      linkedId: primaryContact.id,
+      linkPrecedence: "SECONDARY",
+    },
+  });
+  newlyCreatedSecondaryId = newSecondary.id;
+}
 
     // Step 6: Fetch updated list of all linked contacts
     allContacts = await prisma.contact.findMany({
@@ -113,9 +115,13 @@ app.post("/identity", async (req,res) : Promise<any>=>{
     new Set(allContacts.map((c) => c.phoneNumber).filter(Boolean))
   );
   const secondaryContactIds = allContacts
-    .filter((c) => c.id !== primaryContact.id)
-    .map((c) => c.id);
+  .filter((c) =>
+    c.linkPrecedence === "SECONDARY" &&
+    c.id !== newlyCreatedSecondaryId
+  )
+  .map((c) => c.id);
 
+  
   return res.json({
     contact: {
       primaryContactId: primaryContact.id,
