@@ -9,6 +9,8 @@ const prisma = new PrismaClient();
 
 app.use(express.json());
 
+const port = process.env.PORT || 10000 
+
 app.post("/identity", async (req:Request,res:Response) : Promise<any>=>{
   const { email, phoneNumber } = req.body;
 
@@ -133,6 +135,6 @@ app.post("/identity", async (req:Request,res:Response) : Promise<any>=>{
     },
   });
 });
-app.listen(process.env.PORT, () => {
+app.listen(port, () => {
   console.log("Server running on http://localhost:3000");
 });
